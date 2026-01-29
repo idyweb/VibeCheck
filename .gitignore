@@ -8,3 +8,18 @@ wheels/
 
 # Virtual environments
 .venv
+# Python
+__pycache__/
+*.pyc
+
+# Virtual Env
+.venv/
+env/
+
+# Data
+*.txt
+*.zip
+_chat.txt
+
+# Streamlit
+.streamlit/
