@@ -2,24 +2,24 @@
 
 **VibeCheck** is a privacy-first analytics tool that turns your WhatsApp chat exports into beautiful, interactive insights. Visualize who talks the most, who takes the longest to reply, and the overall "vibe" (sentiment) of the conversation.
 
-🔗 **Live Demo:** [analyze.idyvalour.space](https://analyze.idyvalour.space)
+🔗 **Live Demo:** [vibecheck.idyvalour.space](https://vibecheck.idyvalour.space)
 
 ---
 
-## 🚀 Features
+## Features
 
-* **📊 Volume Analysis:** See who dominates the conversation with message count breakdowns.
-* **⚡ Ghost Meter:** Calculate average response times to see who leaves you on read.
-* **🕰️ Hourly Activity:** Discover when the group is most active (are you night owls or early birds?).
-* **☁️ Word Cloud:** Visualize the most used words and slang in your chat.
-* **❤️ Sentiment Analysis:** A built-in "Vibe Check" that uses NLP to score the positivity of the chat.
-* **🔒 Privacy First:** All processing happens in-memory. No data is ever stored or saved to a database.
+* **Volume Analysis:** See who dominates the conversation with message count breakdowns.
+* **Ghost Meter:** Calculate average response times to see who leaves you on read.
+* **Hourly Activity:** Discover when the group is most active (are you night owls or early birds?).
+* **Word Cloud:** Visualize the most used words and slang in your chat.
+* **Sentiment Analysis:** A built-in "Vibe Check" that uses NLP to score the positivity of the chat.
+* **Privacy First:** All processing happens in-memory. No data is ever stored or saved to a database.
 
 ---
 
-## 🛠️ Tech Stack
 
-## 🛠️ Tech Stack
+
+## Tech Stack
 
 * **Python 3.12**
 * **Streamlit** (Frontend)
@@ -28,13 +28,13 @@
 
 ---
 
-## ⚙️ Installation & Local Run
+## Installation & Local Run
 
 Want to run this on your own machine? Follow these steps:
 
 ### 1. Clone the repository
 ```bash
-git clone [https://github.com/yourusername/vibecheck.git](https://github.com/yourusername/vibecheck.git)
+git clone https://github.com/idyweb/VibeCheck.git
 cd vibecheck
 
 ```
