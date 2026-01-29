@@ -481,7 +481,7 @@ def main():
         st.info("Your data is processed in memory and never stored. Once you close this tab, it's gone forever.")
         
         st.markdown("---")
-        st.markdown("Made with ❤️ by your friendly neighborhood data nerd")
+        st.markdown("Made with ❤️ by Idy")
 
     if uploaded_file:
         with st.spinner('🔍 Parsing your chat history... This might take a moment!'):
