@@ -1,7 +1,7 @@
 [project]
 name = "chat"
-version = "0.1.0"
-description = "Add your description here"
+version = "1.0.0"
+description = "WhatsApp Chat Analyzer with Streamlit UI and FastAPI backend"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -10,4 +10,9 @@ dependencies = [
     "streamlit>=1.53.1",
     "textblob>=0.19.0",
     "wordcloud>=1.9.6",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "python-multipart>=0.0.20",
+    "pandas>=2.3.3",
 ]
+

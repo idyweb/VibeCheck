@@ -21,5 +21,8 @@ env/
 *.zip
 _chat.txt
 
+# Deployment
+vibecheck-deploy.tar.gz
+
 # Streamlit
 .streamlit/

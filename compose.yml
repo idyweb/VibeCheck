@@ -1,8 +1,16 @@
-
 services:
-  app:
+  streamlit:
     build: .
-    container_name: vibecheck
+    container_name: vibecheck-ui
     restart: always
     ports:
-      - "127.0.0.1:8501:8501"
+      - "8501:8501"
+    command: ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+
+  api:
+    build: .
+    container_name: vibecheck-api
+    restart: always
+    ports:
+      - "8000:8000"
+    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
