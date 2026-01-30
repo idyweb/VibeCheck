@@ -7,6 +7,9 @@ from textblob import TextBlob
 from wordcloud import WordCloud, STOPWORDS
 import warnings
 from datetime import datetime
+import zipfile
+from collections import Counter
+import emoji
 
 # --- CONFIGURATION & SETUP ---
 warnings.filterwarnings("ignore")
@@ -38,7 +41,7 @@ st.markdown("""
         font-weight: 600;
     }
     
-    /* Metric styling - FIXED WHITE ON WHITE ISSUE */
+    /* Metric styling */
     [data-testid="stMetricValue"] {
         color: #1E88E5 !important;
         font-size: 2rem !important;
@@ -141,6 +144,19 @@ st.markdown("""
         box-shadow: 0 6px 12px rgba(0,0,0,0.2);
         transform: translateY(-2px);
     }
+    
+    /* Badge styling */
+    .badge {
+        display: inline-block;
+        background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
+        color: #333;
+        padding: 8px 15px;
+        border-radius: 20px;
+        font-weight: 700;
+        margin: 5px;
+        box-shadow: 0 3px 6px rgba(0,0,0,0.2);
+        font-size: 0.9rem;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -149,11 +165,26 @@ MESSAGE_PATTERN = r'.*?\[(\d{2}/\d{2}/\d{4}), (\d{2}:\d{2}:\d{2})\] (.*?): (.*)$
 
 @st.cache_data
 def load_data(uploaded_file):
-    """Parses the uploaded WhatsApp text file into a DataFrame."""
+    """Parses the uploaded WhatsApp file (TXT or ZIP) into a DataFrame."""
     try:
-        stringio = uploaded_file.getvalue().decode("utf-8")
+        # 1. HANDLE ZIP FILES
+        if uploaded_file.name.endswith('.zip'):
+            with zipfile.ZipFile(uploaded_file) as z:
+                # Find the first .txt file inside the zip (usually _chat.txt)
+                txt_files = [f for f in z.namelist() if f.endswith('.txt')]
+                if not txt_files:
+                    return pd.DataFrame() # No text file found
+                
+                # Read the file content
+                with z.open(txt_files[0]) as f:
+                    stringio = f.read().decode("utf-8")
+        
+        # 2. HANDLE TXT FILES
+        else:
+            stringio = uploaded_file.getvalue().decode("utf-8")
+            
         lines = stringio.splitlines()
-    except Exception:
+    except Exception as e:
         return pd.DataFrame()
 
     data = []
@@ -194,7 +225,378 @@ def get_sentiment(text):
     """Returns a polarity score between -1 (Negative) and 1 (Positive)."""
     return TextBlob(str(text)).sentiment.polarity
 
-# --- VISUALIZATION FUNCTIONS ---
+def extract_emojis(text):
+    """Extract all emojis from text. O(n) complexity."""
+    return [c for c in str(text) if c in emoji.EMOJI_DATA]
+
+# --- NEW ANALYSIS FUNCTIONS ---
+
+def analyze_emojis(df):
+    """Emoji analysis with top users and most popular emojis. O(n*m) where m is avg message length."""
+    st.markdown("### 😂 Emoji Analysis - Who's the Emoji King/Queen?")
+    
+    with st.spinner("Counting emojis..."):
+        # Extract emojis efficiently
+        df['emojis'] = df['Message'].apply(extract_emojis)
+        df['emoji_count'] = df['emojis'].apply(len)
+        
+        # Top emoji users
+        top_authors = df['CleanAuthor'].value_counts().head(10).index
+        emoji_users = df[df['CleanAuthor'].isin(top_authors)].groupby('CleanAuthor')['emoji_count'].sum().sort_values(ascending=False)
+        
+        # Most popular emojis
+        all_emojis = [e for emojis in df['emojis'] for e in emojis]
+        emoji_counter = Counter(all_emojis)
+        top_emojis = emoji_counter.most_common(10)
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("#### 👑 Top Emoji Users")
+            fig, ax = plt.subplots(figsize=(8, 5))
+            sns.barplot(x=emoji_users.values, y=emoji_users.index, hue=emoji_users.index, palette="viridis", ax=ax, legend=False)
+            plt.xlabel("Total Emojis Used", fontsize=12, fontweight='bold')
+            plt.ylabel("Participant", fontsize=12, fontweight='bold')
+            plt.grid(axis='x', alpha=0.3)
+            plt.tight_layout()
+            st.pyplot(fig)
+        
+        with col2:
+            st.markdown("#### 🌟 Most Popular Emojis")
+            if top_emojis:
+                emoji_html = "<div style='background: white; padding: 20px; border-radius: 10px; text-align: center;'>"
+                for emoji_char, count in top_emojis[:10]:
+                    emoji_html += f"<div style='display: inline-block; margin: 10px; text-align: center;'>"
+                    emoji_html += f"<div style='font-size: 3rem;'>{emoji_char}</div>"
+                    emoji_html += f"<div style='color: #333; font-weight: bold;'>{count:,}</div>"
+                    emoji_html += "</div>"
+                emoji_html += "</div>"
+                st.markdown(emoji_html, unsafe_allow_html=True)
+            else:
+                st.info("No emojis found in this chat!")
+        
+        # Signature emojis
+        st.markdown("#### ✨ Signature Emojis (Each Person's Favorite)")
+        signature_emojis = {}
+        for author in top_authors:
+            author_emojis = [e for emojis in df[df['CleanAuthor'] == author]['emojis'] for e in emojis]
+            if author_emojis:
+                signature_emojis[author] = Counter(author_emojis).most_common(1)[0][0]
+        
+        if signature_emojis:
+            sig_html = "<div style='background: white; padding: 20px; border-radius: 10px;'>"
+            for author, emoji_char in signature_emojis.items():
+                sig_html += f"<div style='padding: 10px; margin: 5px 0; background: #f8f9fa; border-radius: 8px; color: #333;'>"
+                sig_html += f"<strong>{author}</strong>: <span style='font-size: 2rem;'>{emoji_char}</span>"
+                sig_html += "</div>"
+            sig_html += "</div>"
+            st.markdown(sig_html, unsafe_allow_html=True)
+    
+    return df
+
+def detect_monologues(df):
+    """Find who sends multiple messages in a row. O(n) complexity."""
+    st.markdown("### 🗣️ Monologue Detector - The Serial Texters")
+    
+    # Efficient monologue detection using vectorized operations
+    df = df.sort_values('DateTime').reset_index(drop=True)
+    df['prev_author'] = df['Author'].shift(1)
+    df['next_author'] = df['Author'].shift(-1)
+    df['is_monologue'] = (df['Author'] == df['prev_author']) | (df['Author'] == df['next_author'])
+    
+    # Count consecutive messages
+    monologue_data = []
+    current_author = None
+    current_count = 0
+    
+    for idx, row in df.iterrows():
+        if row['Author'] == current_author:
+            current_count += 1
+        else:
+            if current_count >= 3:  # 3+ consecutive messages
+                monologue_data.append({'Author': current_author, 'Count': current_count})
+            current_author = row['Author']
+            current_count = 1
+    
+    if current_count >= 3:
+        monologue_data.append({'Author': current_author, 'Count': current_count})
+    
+    if not monologue_data:
+        st.info("No monologues detected! Everyone's pretty balanced.")
+        return df
+    
+    monologue_df = pd.DataFrame(monologue_data)
+    monologue_df['CleanAuthor'] = monologue_df['Author'].apply(clean_name)
+    top_monologuers = monologue_df.groupby('CleanAuthor')['Count'].sum().sort_values(ascending=False).head(10)
+    
+    fig, ax = plt.subplots(figsize=(10, 5))
+    sns.barplot(x=top_monologuers.values, y=top_monologuers.index, hue=top_monologuers.index, palette="Reds_r", ax=ax, legend=False)
+    plt.xlabel("Total Consecutive Messages", fontsize=12, fontweight='bold')
+    plt.ylabel("Participant", fontsize=12, fontweight='bold')
+    plt.grid(axis='x', alpha=0.3)
+    plt.tight_layout()
+    st.pyplot(fig)
+    
+    with st.expander("🗣️ What does this mean?"):
+        top_monologuer = top_monologuers.index[0]
+        count = top_monologuers.values[0]
+        st.write(f"**{top_monologuer}** loves to send multiple messages in a row! Total: **{count:,}** consecutive messages. 📱💨")
+    
+    return df
+
+def analyze_conversation_roles(df):
+    """Identify conversation starters and enders. O(n) complexity."""
+    st.markdown("### 🎬 Conversation Starters vs Enders")
+    
+    df = df.sort_values('DateTime').reset_index(drop=True)
+    df['time_since_last'] = df['DateTime'].diff().dt.total_seconds() / 3600  # hours
+    
+    # Starters: messages after 3+ hours of silence
+    starters = df[df['time_since_last'] > 3].copy()
+    starter_counts = starters['CleanAuthor'].value_counts().head(10)
+    
+    # Enders: messages before 3+ hours of silence
+    df['time_to_next'] = df['DateTime'].shift(-1) - df['DateTime']
+    df['time_to_next_hours'] = df['time_to_next'].dt.total_seconds() / 3600
+    enders = df[df['time_to_next_hours'] > 3].copy()
+    ender_counts = enders['CleanAuthor'].value_counts().head(10)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("#### 🚀 Conversation Starters")
+        fig, ax = plt.subplots(figsize=(8, 5))
+        sns.barplot(x=starter_counts.values, y=starter_counts.index, hue=starter_counts.index, palette="Greens_r", ax=ax, legend=False)
+        plt.xlabel("Times Started Conversation", fontsize=12, fontweight='bold')
+        plt.ylabel("Participant", fontsize=12, fontweight='bold')
+        plt.grid(axis='x', alpha=0.3)
+        plt.tight_layout()
+        st.pyplot(fig)
+    
+    with col2:
+        st.markdown("#### 🛑 Conversation Enders")
+        fig, ax = plt.subplots(figsize=(8, 5))
+        sns.barplot(x=ender_counts.values, y=ender_counts.index, hue=ender_counts.index, palette="Oranges_r", ax=ax, legend=False)
+        plt.xlabel("Times Ended Conversation", fontsize=12, fontweight='bold')
+        plt.ylabel("Participant", fontsize=12, fontweight='bold')
+        plt.grid(axis='x', alpha=0.3)
+        plt.tight_layout()
+        st.pyplot(fig)
+    
+    with st.expander("🎬 What does this mean?"):
+        if not starter_counts.empty:
+            st.write(f"**{starter_counts.index[0]}** is the conversation igniter, breaking {starter_counts.values[0]} silences! 🔥")
+        if not ender_counts.empty:
+            st.write(f"**{ender_counts.index[0]}** has the last word {ender_counts.values[0]} times... conversation killer or mic drop master? 🎤⬇️")
+    
+    return df
+
+def analyze_links(df):
+    """Find who shares the most links. O(n*m) where m is avg message length."""
+    st.markdown("### 🔗 Link Sharer - The Internet Scout")
+    
+    # Detect links efficiently
+    df['has_link'] = df['Message'].str.contains(r'http|www\.', case=False, na=False, regex=True)
+    df['link_count'] = df['Message'].str.count(r'http|www\.', flags=re.IGNORECASE)
+    
+    top_authors = df['CleanAuthor'].value_counts().head(10).index
+    link_sharers = df[df['CleanAuthor'].isin(top_authors)].groupby('CleanAuthor')['has_link'].sum().sort_values(ascending=False)
+    
+    if link_sharers.sum() == 0:
+        st.info("No links shared in this chat!")
+        return df
+    
+    fig, ax = plt.subplots(figsize=(10, 5))
+    sns.barplot(x=link_sharers.values, y=link_sharers.index, hue=link_sharers.index, palette="Blues_r", ax=ax, legend=False)
+    plt.xlabel("Links Shared", fontsize=12, fontweight='bold')
+    plt.ylabel("Participant", fontsize=12, fontweight='bold')
+    plt.grid(axis='x', alpha=0.3)
+    plt.tight_layout()
+    st.pyplot(fig)
+    
+    with st.expander("🔗 What does this mean?"):
+        top_linker = link_sharers.index[0]
+        count = link_sharers.values[0]
+        st.write(f"**{top_linker}** is the group's news source with **{count:,}** links shared! 📰")
+    
+    return df
+
+def analyze_message_length(df):
+    """Find who sends the longest messages. O(n) complexity."""
+    st.markdown("### 📏 Message Length - Novels vs One-Liners")
+    
+    df['msg_length'] = df['Message'].str.len()
+    
+    top_authors = df['CleanAuthor'].value_counts().head(10).index
+    avg_lengths = df[df['CleanAuthor'].isin(top_authors)].groupby('CleanAuthor')['msg_length'].mean().sort_values(ascending=False)
+    
+    fig, ax = plt.subplots(figsize=(10, 5))
+    sns.barplot(x=avg_lengths.values, y=avg_lengths.index, hue=avg_lengths.index, palette="Purples_r", ax=ax, legend=False)
+    plt.xlabel("Average Message Length (characters)", fontsize=12, fontweight='bold')
+    plt.ylabel("Participant", fontsize=12, fontweight='bold')
+    plt.grid(axis='x', alpha=0.3)
+    plt.tight_layout()
+    st.pyplot(fig)
+    
+    # Find longest single message
+    longest_msg = df.loc[df['msg_length'].idxmax()]
+    longest_preview = longest_msg['Message'][:200] + "..." if len(longest_msg['Message']) > 200 else longest_msg['Message']
+    
+    with st.expander("📏 What does this mean?"):
+        top_writer = avg_lengths.index[0]
+        avg_len = avg_lengths.values[0]
+        st.write(f"**{top_writer}** writes essays with an average of **{avg_len:.0f}** characters per message! 📚")
+        st.write(f"\n**Longest message** ({longest_msg['msg_length']:,} chars) by **{clean_name(longest_msg['Author'])}**:")
+        st.code(longest_preview)
+    
+    return df
+
+def calculate_achievements(df):
+    """Award achievement badges based on behavior. O(n) complexity."""
+    st.markdown("### 🏆 Achievement Badges - Hall of Fame")
+    
+    achievements = {}
+    
+    # Night Owl - most messages after midnight
+    df['hour'] = df['DateTime'].dt.hour
+    night_msgs = df[df['hour'].between(0, 5)]
+    if not night_msgs.empty:
+        night_owl = night_msgs['CleanAuthor'].value_counts().index[0]
+        achievements[night_owl] = achievements.get(night_owl, []) + ['🦉 Night Owl']
+    
+    # Early Bird - most messages before 7am
+    early_msgs = df[df['hour'].between(5, 7)]
+    if not early_msgs.empty:
+        early_bird = early_msgs['CleanAuthor'].value_counts().index[0]
+        achievements[early_bird] = achievements.get(early_bird, []) + ['🐦 Early Bird']
+    
+    # Comedian - highest emoji ratio
+    if 'emoji_count' in df.columns:
+        df['emoji_ratio'] = df['emoji_count'] / (df['Message'].str.len() + 1)
+        top_authors = df['CleanAuthor'].value_counts().head(10).index
+        emoji_ratio = df[df['CleanAuthor'].isin(top_authors)].groupby('CleanAuthor')['emoji_ratio'].mean()
+        if not emoji_ratio.empty:
+            comedian = emoji_ratio.idxmax()
+            achievements[comedian] = achievements.get(comedian, []) + ['😂 Comedian']
+    
+    # Professor - longest average message
+    if 'msg_length' in df.columns:
+        top_authors = df['CleanAuthor'].value_counts().head(10).index
+        avg_length = df[df['CleanAuthor'].isin(top_authors)].groupby('CleanAuthor')['msg_length'].mean()
+        if not avg_length.empty:
+            professor = avg_length.idxmax()
+            achievements[professor] = achievements.get(professor, []) + ['👨‍🏫 Professor']
+    
+    # Lightning - fastest average response (if we have response time data)
+    df_sorted = df.sort_values('DateTime')
+    df_sorted['Prev_Author'] = df_sorted['Author'].shift(1)
+    df_sorted['Time_Diff'] = df_sorted['DateTime'].diff().dt.total_seconds() / 60
+    replies = df_sorted[(df_sorted['Author'] != df_sorted['Prev_Author']) & 
+                        (df_sorted['Time_Diff'] < 720) & (df_sorted['Time_Diff'] > 0)]
+    if not replies.empty:
+        top_authors = df['CleanAuthor'].value_counts().head(10).index
+        avg_response = replies[replies['CleanAuthor'].isin(top_authors)].groupby('CleanAuthor')['Time_Diff'].mean()
+        if not avg_response.empty:
+            lightning = avg_response.idxmin()
+            achievements[lightning] = achievements.get(lightning, []) + ['⚡ Lightning']
+    
+    # Chatterbox - most messages
+    chatterbox = df['CleanAuthor'].value_counts().index[0]
+    achievements[chatterbox] = achievements.get(chatterbox, []) + ['💬 Chatterbox']
+    
+    # Display achievements
+    if achievements:
+        for person, badges in achievements.items():
+            badge_html = f"<div style='background: white; padding: 20px; margin: 15px 0; border-radius: 10px; border-left: 5px solid #FFD700;'>"
+            badge_html += f"<div style='color: #1a1a1a; margin: 0 0 10px 0; font-size: 1.3rem; font-weight: 700;'>{person}</div>"
+            for badge in badges:
+                badge_html += f"<span class='badge'>{badge}</span>"
+            badge_html += "</div>"
+            st.markdown(badge_html, unsafe_allow_html=True)
+    
+    return df
+
+def you_vs_group_comparison(df):
+    """Compare a specific user to group averages. O(n) complexity."""
+    st.markdown("### 🤺 You vs The Group - Personal Report Card")
+    
+    user_name = st.text_input("Enter your name exactly as it appears in the chat:", key="user_comparison")
+    
+    if user_name:
+        # Find closest match
+        user_clean = clean_name(user_name)
+        if user_clean not in df['CleanAuthor'].values:
+            st.warning(f"❌ Couldn't find '{user_name}' in the chat. Try these: {', '.join(df['CleanAuthor'].unique()[:5])}")
+            return df
+        
+        user_df = df[df['CleanAuthor'] == user_clean]
+        
+        # Calculate metrics
+        metrics = {}
+        
+        # Message count
+        user_msgs = len(user_df)
+        group_avg_msgs = len(df) / df['Author'].nunique()
+        metrics['Messages'] = {'You': user_msgs, 'Group Avg': group_avg_msgs, 'Unit': 'messages'}
+        
+        # Response time
+        df_sorted = df.sort_values('DateTime')
+        df_sorted['Prev_Author'] = df_sorted['Author'].shift(1)
+        df_sorted['Time_Diff'] = df_sorted['DateTime'].diff().dt.total_seconds() / 60
+        replies = df_sorted[(df_sorted['Author'] != df_sorted['Prev_Author']) & 
+                           (df_sorted['Time_Diff'] < 720) & (df_sorted['Time_Diff'] > 0)]
+        
+        if not replies.empty:
+            user_response = replies[replies['CleanAuthor'] == user_clean]['Time_Diff'].mean()
+            group_response = replies['Time_Diff'].mean()
+            metrics['Response Time'] = {'You': user_response, 'Group Avg': group_response, 'Unit': 'minutes'}
+        
+        # Sentiment
+        if 'Sentiment' in df.columns:
+            user_sentiment = user_df['Sentiment'].mean() * 100
+            group_sentiment = df['Sentiment'].mean() * 100
+            metrics['Positivity'] = {'You': user_sentiment, 'Group Avg': group_sentiment, 'Unit': '%'}
+        
+        # Message length
+        if 'msg_length' in df.columns:
+            user_length = user_df['msg_length'].mean()
+            group_length = df['msg_length'].mean()
+            metrics['Avg Message Length'] = {'You': user_length, 'Group Avg': group_length, 'Unit': 'chars'}
+        
+        # Emoji usage
+        if 'emoji_count' in df.columns:
+            user_emojis = user_df['emoji_count'].sum()
+            group_emojis = df['emoji_count'].sum() / df['Author'].nunique()
+            metrics['Total Emojis'] = {'You': user_emojis, 'Group Avg': group_emojis, 'Unit': 'emojis'}
+        
+        # Display comparison
+        st.markdown(f"#### 📊 {user_clean}'s Performance")
+        
+        cols = st.columns(len(metrics))
+        for i, (metric_name, values) in enumerate(metrics.items()):
+            with cols[i]:
+                your_val = values['You']
+                group_val = values['Group Avg']
+                
+                if metric_name == 'Response Time':
+                    delta = group_val - your_val  # Faster is better
+                    delta_str = f"{abs(delta):.1f} min {'faster' if delta > 0 else 'slower'}"
+                else:
+                    delta = your_val - group_val
+                    delta_str = f"{abs(delta):.1f} {'above' if delta > 0 else 'below'} avg"
+                
+                st.metric(
+                    label=metric_name,
+                    value=f"{your_val:.1f} {values['Unit']}",
+                    delta=delta_str
+                )
+        
+        # Radar chart would go here if we had plotly
+        st.success(f"✨ {user_clean}, you're {'above' if user_msgs > group_avg_msgs else 'below'} average in activity!")
+    
+    return df
+
+# --- EXISTING VISUALIZATION FUNCTIONS ---
 def plot_volume(df):
     st.markdown("### 📣 Message Volume - Who's the Chatterbox?")
     fig, ax = plt.subplots(figsize=(10, 5))
@@ -341,31 +743,23 @@ def show_leaderboard(df):
     top5 = df['Author'].value_counts().head(5)
     medals = ['🥇', '🥈', '🥉', '🏅', '🎖️']
     
-    # Use Streamlit columns for better rendering
     for i, (author, count) in enumerate(top5.items()):
         percentage = (count / len(df)) * 100
         clean_author = clean_name(author)
         
-        # Create a card for each person
-        st.markdown(f"""
-        <div style="background: linear-gradient(90deg, #f8f9fa 0%, #ffffff 100%); 
-                    padding: 20px; margin: 15px 0; border-radius: 10px; 
-                    border-left: 5px solid #667eea; box-shadow: 0 3px 8px rgba(0,0,0,0.1);
-                    display: flex; align-items: center;">
-            <div style="font-size: 2.5rem; margin-right: 20px; min-width: 60px; text-align: center;">
-                {medals[i]}
-            </div>
+        html_card = f"""
+        <div style="background: #ffffff; padding: 20px; margin: 15px 0; border-radius: 10px; border-left: 5px solid #667eea; box-shadow: 0 3px 8px rgba(0,0,0,0.1); display: flex; align-items: center;">
+            <div style="font-size: 2.5rem; margin-right: 20px; min-width: 60px; text-align: center;">{medals[i]}</div>
             <div style="flex-grow: 1;">
-                <h3 style="margin: 0; color: #333; font-size: 1.4rem;">{clean_author}</h3>
-                <p style="margin: 8px 0 0 0; color: #666; font-size: 1rem;">
-                    <strong>{count:,}</strong> messages • <strong>{percentage:.1f}%</strong> of total
+                <div style="color: #1a1a1a; margin: 0; font-size: 1.4rem; font-weight: 700; margin-bottom: 5px;">{clean_author}</div>
+                <p style="color: #333333; margin: 0; font-size: 1rem;">
+                    <strong style="color: #1a1a1a;">{count:,}</strong> messages • <span style="color: #555555;">{percentage:.1f}%</span>
                 </p>
             </div>
-            <div style="font-size: 2rem; font-weight: bold; color: #667eea; min-width: 60px; text-align: center;">
-                #{i+1}
-            </div>
+            <div style="font-size: 2rem; font-weight: bold; color: #667eea; min-width: 60px; text-align: center;">#{i+1}</div>
         </div>
-        """, unsafe_allow_html=True)
+        """
+        st.markdown(html_card, unsafe_allow_html=True)
 
 def show_summary(df):
     st.markdown("## 📊 Executive Summary")
@@ -460,7 +854,7 @@ def main():
     with st.sidebar:
         st.markdown("## 📤 Upload Your Chat")
         st.markdown("---")
-        uploaded_file = st.file_uploader("Choose your _chat.txt file", type="txt", help="Export your WhatsApp chat without media")
+        uploaded_file = st.file_uploader("Choose your _chat.txt or .zip file", type=["txt", "zip"], help="Export your WhatsApp chat without media")
         
         st.markdown("---")
         st.markdown("### 📱 How to Export")
@@ -489,7 +883,7 @@ def main():
 
         if df.empty:
             st.error("⚠️ **Oops!** Couldn't parse the file. Make sure it's an iOS WhatsApp export without media.")
-            st.info("💡 Tip: The file should look like `WhatsApp Chat with XYZ.txt`")
+            st.info("💡 Tip: The file should look like `WhatsApp Chat with XYZ.txt` or a `.zip` containing it.")
         else:
             # Preprocess names
             df['CleanAuthor'] = df['Author'].apply(clean_name)
@@ -546,6 +940,44 @@ def main():
             
             # Row 4: Word Cloud (full width)
             plot_wordcloud(df)
+            
+            st.markdown("---")
+            
+            # NEW FEATURES SECTION
+            st.markdown("## 🎮 Advanced Analytics")
+            
+            # Emoji Analysis
+            df = analyze_emojis(df)
+            
+            st.markdown("---")
+            
+            # Monologue Detector
+            df = detect_monologues(df)
+            
+            st.markdown("---")
+            
+            # Conversation Roles
+            df = analyze_conversation_roles(df)
+            
+            st.markdown("---")
+            
+            # Message Length
+            df = analyze_message_length(df)
+            
+            st.markdown("---")
+            
+            # Link Sharer
+            df = analyze_links(df)
+            
+            st.markdown("---")
+            
+            # Achievement Badges
+            df = calculate_achievements(df)
+            
+            st.markdown("---")
+            
+            # You vs Group
+            df = you_vs_group_comparison(df)
             
             st.markdown("---")
             st.markdown("---")
@@ -617,6 +1049,39 @@ def main():
             - Night owls vs early birds
             - Most positive vibes
             - Comprehensive summary
+            """)
+        
+        st.markdown("---")
+        
+        # NEW FEATURES PREVIEW
+        st.markdown("## 🎮 NEW: Advanced Features")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.markdown("""
+            ### 😂 Emoji Analysis
+            - Top emoji users
+            - Most popular emojis
+            - Signature emojis
+            - Emoji-to-text ratios
+            """)
+        
+        with col2:
+            st.markdown("""
+            ### 🎬 Behavior Insights
+            - Monologue detector
+            - Conversation starters/enders
+            - Link sharers
+            - Message length analysis
+            """)
+        
+        with col3:
+            st.markdown("""
+            ### 🏆 Gamification
+            - Achievement badges
+            - You vs Group comparison
+            - Personal report card
             """)
 
 if __name__ == "__main__":
