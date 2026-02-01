@@ -77,6 +77,10 @@ async def upload_chat_file(file: UploadFile = File(...)):
         if len(sessions) > 100:
             oldest_key = next(iter(sessions))
             del sessions[oldest_key]
+            
+        # Increment global stats
+        from api.stats import StatsService
+        StatsService.increment_count()
         
         return UploadResponse(
             success=True,

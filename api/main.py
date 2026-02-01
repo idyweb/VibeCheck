@@ -53,3 +53,10 @@ async def health_check():
 async def api_health_check():
     """API health check endpoint."""
     return HealthResponse(status="healthy", version="1.0.0")
+
+
+@app.get("/api/stats", tags=["stats"])
+async def get_stats():
+    """Get global usage statistics."""
+    from api.stats import StatsService
+    return {"total_vibes_checked": StatsService.get_count()}

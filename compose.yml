@@ -13,4 +13,11 @@ services:
     restart: always
     ports:
       - "8000:8000"
-    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    volumes:
+      - ./api:/app/api
+      - ./src:/app/src
+      - vibe_data:/app/data
+    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+volumes:
+  vibe_data:

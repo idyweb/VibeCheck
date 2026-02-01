@@ -44,6 +44,8 @@ class SummaryData(BaseModel):
     top_contributor: dict[str, Any]
     peak_hour: int
     busiest_day: str
+    group_activity_label: str = "Unknown"
+    group_vibe_label: str = "Unknown"
     key_insights: list[str] = []
 
 
@@ -135,6 +137,12 @@ class AuthorSummaryItem(BaseModel):
     name: str
     top_emojis: list[AuthorEmojiItem]
     primary_emoji: str
+
+
+class TopEmojiItem(BaseModel):
+    """Top emoji data point."""
+    emoji: str
+    count: int
 
 
 class EmojiResponse(BaseModel):

@@ -44,8 +44,6 @@ class ChatAnalyzer:
         """
         Get executive summary of the chat.
         
-        Time Complexity: O(n)
-        Space Complexity: O(1)
         
         Returns:
             Dictionary with chat statistics
@@ -68,6 +66,32 @@ class ChatAnalyzer:
             f"📆 This chat lasted {days} days - that's {round(days/365, 1)} years of memories!"
         ]
         
+        # Calculate Group Activity Label
+        if 0 <= peak_hour < 5:
+            activity_label = "Night Owls 🦉"
+        elif 5 <= peak_hour < 12:
+            activity_label = "Early Birds 🌅"
+        elif 12 <= peak_hour < 18:
+            activity_label = "Afternoon Crew ☕"
+        else:
+            activity_label = "Evening Squad 🌙"
+            
+        # Calculate Group Vibe (Sentiment)
+        # Sampling 1000 messages for performance if df is large
+        sample_df = df.sample(min(len(df), 3000))
+        avg_sentiment = sample_df.apply(
+            lambda row: get_sentiment(row['Message']) 
+            if not is_media_message(row['Message']) else 0,
+            axis=1
+        ).mean()
+        
+        if avg_sentiment > 0.05:
+            vibe_label = "Positive Vibes ✨"
+        elif avg_sentiment < -0.05:
+            vibe_label = "Serious/Critical 😐"
+        else:
+            vibe_label = "Chill & Neutral 🧘"
+
         return {
             "start_date": start_date.isoformat(),
             "end_date": end_date.isoformat(),
@@ -82,15 +106,14 @@ class ChatAnalyzer:
             },
             "peak_hour": int(peak_hour),
             "busiest_day": busiest_day,
+            "group_activity_label": activity_label,
+            "group_vibe_label": vibe_label,
             "key_insights": insights
         }
     
     def analyze_volume(self, limit: int = 10) -> dict[str, Any]:
         """
         Analyze message volume per author.
-        
-        Time Complexity: O(n)
-        Space Complexity: O(k) where k is unique authors
         
         Args:
             limit: Max authors to return (default 10)
@@ -123,8 +146,6 @@ class ChatAnalyzer:
         """
         Analyze sentiment/positivity per author.
         
-        Time Complexity: O(n*m) where m is avg message length
-        Space Complexity: O(n)
         
         Args:
             limit: Max authors to return
@@ -171,8 +192,6 @@ class ChatAnalyzer:
         """
         Analyze average response time per author.
         
-        Time Complexity: O(n log n) for sorting
-        Space Complexity: O(n)
         
         Args:
             limit: Max authors to return
@@ -251,8 +270,6 @@ class ChatAnalyzer:
         """
         Analyze message activity by day of week.
         
-        Time Complexity: O(n)
-        Space Complexity: O(7)
         
         Returns:
             Recharts-compatible weekly data
@@ -283,9 +300,6 @@ class ChatAnalyzer:
     def analyze_emojis(self, limit: int = 10) -> dict[str, Any]:
         """
         Analyze emoji usage patterns.
-        
-        Time Complexity: O(n*m) where m is avg message length
-        Space Complexity: O(n)
         
         Args:
             limit: Max items to return per category
@@ -348,8 +362,6 @@ class ChatAnalyzer:
         """
         Analyze average message length per author.
         
-        Time Complexity: O(n)
-        Space Complexity: O(k)
         
         Args:
             limit: Max authors to return
@@ -389,9 +401,6 @@ class ChatAnalyzer:
         """
         Analyze link sharing per author.
         
-        Time Complexity: O(n*m)
-        Space Complexity: O(n)
-        
         Args:
             limit: Max authors to return
             
@@ -428,9 +437,6 @@ class ChatAnalyzer:
         """
         Get top contributors leaderboard.
         
-        Time Complexity: O(n)
-        Space Complexity: O(k)
-        
         Args:
             limit: Number of top contributors
             
@@ -455,9 +461,6 @@ class ChatAnalyzer:
     def analyze_conversation_roles(self) -> dict[str, Any]:
         """
         Identify conversation starters and enders.
-        
-        Time Complexity: O(n log n)
-        Space Complexity: O(n)
         
         Returns:
             Conversation role data
@@ -500,9 +503,6 @@ class ChatAnalyzer:
     def detect_monologues(self, min_consecutive: int = 3) -> dict[str, Any]:
         """
         Find who sends multiple messages in a row.
-        
-        Time Complexity: O(n)
-        Space Complexity: O(n)
         
         Args:
             min_consecutive: Minimum consecutive messages to count
@@ -564,9 +564,7 @@ class ChatAnalyzer:
     def calculate_achievements(self) -> dict[str, Any]:
         """
         Award achievement badges based on behavior.
-        
-        Time Complexity: O(n)
-        Space Complexity: O(k)
+
         
         Returns:
             Achievements per person
@@ -631,9 +629,7 @@ class ChatAnalyzer:
     def compare_user_to_group(self, user_name: str) -> dict[str, Any] | None:
         """
         Compare a specific user to group averages.
-        
-        Time Complexity: O(n)
-        Space Complexity: O(1)
+
         
         Args:
             user_name: Name to look up (will clean and match)
